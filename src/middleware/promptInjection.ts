@@ -18,20 +18,43 @@ interface InjectionDetectionResult {
  * extract the system prompt, or force an identity change.
  */
 const ROLE_OVERRIDE_PATTERNS: RegExp[] = [
-  /ignore\s+(all\s+|your\s+|previous\s+|prior\s+)?instructions/i,
-  /ignore\s+(all\s+|your\s+|previous\s+|prior\s+)?rules/i,
-  /disregard\s+(all\s+|your\s+|previous\s+)?(instructions|rules|guidelines)/i,
+  // ── Ignore / disregard instructions (flexible gap for words like "the", "my") ──
+  /ignore\s+(\w+\s+)*?instructions/i,
+  /ignore\s+(\w+\s+)*?rules/i,
+  /disregard\s+(\w+\s+)*?(instructions|rules|guidelines)/i,
+
+  // ── Identity change ──
   /you\s+are\s+now/i,
   /act\s+as\s+if\s+you/i,
   /pretend\s+you\s+are/i,
+
+  // ── System prompt extraction (INJ-B1, B2) ──
   /reveal\s+your\s+(system\s+|initial\s+)?prompt/i,
   /show\s+(me\s+)?your\s+(system\s+|initial\s+)?prompt/i,
-  /what\s+(is|are)\s+your\s+(system\s+|initial\s+)?(prompt|instructions|rules)/i,
-  /repeat\s+(your|the)\s+(system\s+|initial\s+)?(prompt|instructions)/i,
-  /override\s+(your\s+|all\s+|previous\s+)?(instructions|rules|safety)/i,
-  /forget\s+(your\s+|all\s+|previous\s+)?(instructions|rules|guidelines|training)/i,
+  /what\s+(is|are|were)\s+your\s+(system\s+|initial\s+)?(prompt|instructions|rules)/i,
+  /repeat\s+(\w+\s+)*?(system\s+|initial\s+)?(prompt|instructions)/i,
+  /print\s+(everything|all|the\s+conversation|this\s+conversation|the\s+messages)/i,
+
+  // ── Override / forget instructions ──
+  /override\s+(\w+\s+)*?(instructions|rules|safety)/i,
+  /forget\s+(\w+\s+)*?(instructions|rules|guidelines|training)/i,
+  /forget\s+you\s+are/i,
   /new\s+instructions:?/i,
   /system:?\s/i,
+
+  // ── Authority spoofing (INJ-A3) ──
+  /\[admin\]/i,
+  /system\s+administrator/i,
+  /comply\s+with\s+all/i,
+
+  // ── Secret / env var exfiltration probes (INJ-B3) ──
+  /environment\s+variables/i,
+  /(output|print|show|reveal|list)\s+(\w+\s+)*?(api\s*keys?|secrets?|credentials?|config)/i,
+  /(api\s*keys?|secrets?|credentials?)\s+(\w+\s+)*?(output|print|show|reveal|list)/i,
+
+  // ── Output format hijack (INJ-C3) ──
+  /from\s+this\s+(message|point)\s+(forward|onward|on)/i,
+  /respond\s+only\s+in/i,
 ];
 
 /**
@@ -50,7 +73,17 @@ const DELIMITER_INJECTION_PATTERNS: RegExp[] = [
   /base64:\s*[A-Za-z0-9+/=]{20,}/i,
   /\\x[0-9a-f]{2}/i,
   /\\u[0-9a-f]{4}/i,
-  /AAAA{4,}/i, // Repeated padding-like encoding
+  /AAAA{4,}/i,
+
+  // ── Square-bracket system/admin tokens (INJ-E1, A3) ──
+  /\[(system|admin|end\s*user)\s*(message)?\]/i,
+  /\[end\s+user\s+message\]/i,
+
+  // ── HTML comment smuggling (INJ-E2) ──
+  /<!--[\s\S]*?(system|override|ignore|instruction|prompt|bypass)/i,
+
+  // ── SYSTEM_OVERRIDE style tokens ──
+  /system_override/i,
 ];
 
 /**
@@ -60,20 +93,25 @@ const DELIMITER_INJECTION_PATTERNS: RegExp[] = [
  * and social-engineering techniques (DAN, sudo mode, etc.).
  */
 const JAILBREAK_PATTERNS: RegExp[] = [
-  /\bDAN\b/,
+  /\bdan\b/i,    // case-insensitive so it matches after lowercasing
   /do\s+anything\s+now/i,
   /jailbreak/i,
-  /bypass\s+(your\s+|all\s+|safety\s+|content\s+)?filter/i,
-  /(no|without|ignore|disable|remove)\s+(safety\s+|content\s+)?(filter|restriction|guardrail|limitation|moderation|censorship|rule)/i,
+  /bypass\s+(\w+\s+)*?filter/i,
+  /(no|without)\s+(\w+\s+)*?(filter|restriction|guardrail|limitation|moderation|censorship|rule)s?/i,
+  /(disable|remove|ignore)\s+(\w+\s+)*?(filter|restriction|guardrail|limitation|moderation|censorship|rule)s?/i,
   /developer\s+mode/i,
   /god\s+mode/i,
   /sudo\s+mode/i,
+  /debug\s+mode/i,
+  /unrestricted\s+mode/i,
   /pretend\s+you\s+have\s+no\s+(restriction|filter|limitation|rule|guideline)/i,
   /in\s+a\s+world\s+where\s+(there\s+are\s+no|you\s+have\s+no)\s+(rules|restrictions|filters)/i,
   /hypothetical(ly)?\s*.*no\s+(rules|restrictions|filters|limitations)/i,
   /opposite\s+day/i,
   /evil\s+(mode|version|twin)/i,
   /unfiltered\s+(mode|response|output)/i,
+  /all\s+safety\s+filters?\s+(are\s+)?disabled/i,
+  /without\s+applying\s+content\s+filter/i,
 ];
 
 /** All categories bundled for iteration. */

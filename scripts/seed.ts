@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { MongoClient } from 'mongodb';
 import { hashApiKey } from '../src/utils/crypto.js';
 

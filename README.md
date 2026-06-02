@@ -48,6 +48,30 @@ curl -X POST http://localhost:3000/v1/chat \
 
 ---
 
+## Architecture
+
+```mermaid
+flowchart LR
+    Client["Internal App"] -->|x-api-key| GW["SecureLLM Gateway"]
+
+    subgraph GW["Gateway Pipeline"]
+        direction TB
+        A["1. Correlation ID"] --> B["2. Auth (SHA-256 + timing-safe)"]
+        B --> C["3. Rate Limiter (Redis sorted set)"]
+        C --> D["4. Prompt Injection Detection"]
+        D --> E["5. PII Redaction (reversible tokens)"]
+        E --> F["6. LLM Provider Call"]
+        F --> G["7. Output Validation"]
+        G --> H["8. Audit Logger (MongoDB)"]
+    end
+
+    GW -->|Anthropic / OpenAI| LLM["LLM Provider"]
+    GW --> Mongo[("MongoDB")]
+    GW --> Redis[("Redis")]
+```
+
+---
+
 ## Security Architecture
 
 ### 1. Authentication
@@ -86,6 +110,7 @@ All provider API keys are loaded exclusively from environment variables (validat
 |---|---|---|---|
 | `GET` | `/healthz` | None | Liveness / readiness probe |
 | `POST` | `/v1/chat` | `x-api-key` | Send a chat completion request through the security pipeline |
+| `GET` | `/v1/audit` | `x-api-key` (admin) | Query audit log records (requires admin role) |
 
 ---
 

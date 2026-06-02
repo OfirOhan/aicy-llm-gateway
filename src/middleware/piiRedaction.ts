@@ -22,11 +22,11 @@ const EMAIL_REGEX = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
  *  - International:     +1-555-1234567
  */
 const PHONE_PATTERNS: RegExp[] = [
-  /\+972[- ]?5\d[- ]?\d{3}[- ]?\d{4}/g,     // IL mobile  (+972)
-  /05\d[- ]?\d{3}[- ]?\d{4}/g,               // IL mobile  (local)
-  /\+972[- ]?[2-9][- ]?\d{7}/g,              // IL landline (+972)
-  /0[2-9][- ]?\d{7}/g,                        // IL landline (local)
-  /\+\d{1,3}[- ]?\d{4,14}/g,                 // International catch-all
+  /\+972[- ]?5\d[- ]?\d{3}[- ]?\d{4}/g,       // IL mobile  (+972)
+  /05\d[- ]?\d{3}[- ]?\d{4}/g,                 // IL mobile  (local)
+  /\+972[- ]?[2-9][- ]?\d{3}[- ]?\d{4}/g,      // IL landline (+972)
+  /0[2-9][- ]?\d{3}[- ]?\d{4}/g,               // IL landline (local) — allows 03-555-0184
+  /\+\d{1,3}[- ]?\d{1,4}[- ]?\d{1,4}[- ]?\d{1,9}/g, // International — allows +1-202-555-0143
 ];
 
 /**

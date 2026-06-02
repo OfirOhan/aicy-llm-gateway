@@ -20,7 +20,7 @@ export const ChatMessageSchema = z.object({
 });
 
 export const ChatRequestSchema = z.object({
-  model: z.enum(['claude-3-5-sonnet', 'gpt-4o']),
+  model: z.string().regex(/^(claude-|gpt-)/, 'Model must start with "claude-" or "gpt-"'),
   messages: z.array(ChatMessageSchema).min(1),
   max_tokens: z.number().int().positive().max(4096).optional().default(1024),
 });
