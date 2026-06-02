@@ -1,5 +1,6 @@
 import type { Response, NextFunction } from 'express';
 import type { AuthenticatedRequest, ChatMessage } from '../types.js';
+import { config } from '../config.js';
 import { logger } from '../utils/logger.js';
 
 // ─── Detection Result ───────────────────────────────────────────────────────
@@ -8,6 +9,18 @@ interface InjectionDetectionResult {
   detected: boolean;
   category: string | null;
 }
+
+// ─── ML Classifier Response ─────────────────────────────────────────────────
+
+interface ClassifierResponse {
+  is_injection: boolean;
+  confidence: number;
+  label: string;
+}
+
+// ─── Confidence threshold for blocking ──────────────────────────────────────
+
+const ML_CONFIDENCE_THRESHOLD = 0.85;
 
 // ─── Pattern Categories ─────────────────────────────────────────────────────
 
@@ -146,6 +159,40 @@ export function detectPromptInjection(text: string): InjectionDetectionResult {
   return { detected: false, category: null };
 }
 
+// ─── ML Classifier Helper ───────────────────────────────────────────────────
+
+/**
+ * Call the ML classifier microservice for a secondary opinion.
+ *
+ * Returns the classifier's response, or `null` if the service is
+ * unavailable (graceful degradation — regex-only mode).
+ */
+async function classifyWithML(text: string): Promise<ClassifierResponse | null> {
+  if (!config.CLASSIFIER_URL) {
+    return null;
+  }
+
+  try {
+    const res = await fetch(`${config.CLASSIFIER_URL}/classify`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text }),
+      signal: AbortSignal.timeout(2000), // 2s timeout
+    });
+
+    if (!res.ok) {
+      logger.warn({ status: res.status }, 'ML classifier returned non-OK status');
+      return null;
+    }
+
+    return (await res.json()) as ClassifierResponse;
+  } catch (err) {
+    // Classifier unavailable — degrade gracefully
+    logger.debug({ err }, 'ML classifier unavailable — falling back to regex-only');
+    return null;
+  }
+}
+
 // ─── Express Middleware ─────────────────────────────────────────────────────
 
 /**
@@ -154,12 +201,16 @@ export function detectPromptInjection(text: string): InjectionDetectionResult {
  * Scans every message in `req.body.messages` for known injection
  * patterns across three categories. On first detection the request
  * is rejected with 400 and the category is logged.
+ *
+ * If regex passes, the ML classifier is consulted as a secondary
+ * detection layer (if available). This catches multilingual attacks,
+ * creative writing wrappers, and other novel bypass techniques.
  */
-export function promptInjectionMiddleware(
+export async function promptInjectionMiddleware(
   req: AuthenticatedRequest,
   res: Response,
   next: NextFunction,
-): void {
+): Promise<void> {
   try {
     const messages: ChatMessage[] | undefined = req.body?.messages;
 
@@ -179,6 +230,7 @@ export function promptInjectionMiddleware(
         continue;
       }
 
+      // ── Layer 1: Regex-based detection (fast, deterministic) ──────────
       const result = detectPromptInjection(message.content);
 
       if (result.detected) {
@@ -187,6 +239,7 @@ export function promptInjectionMiddleware(
         logger.warn(
           {
             category: result.category,
+            layer: 'regex',
             role: message.role,
             apiKeyId: req.apiKeyId,
             correlationId: req.correlationId,
@@ -197,6 +250,33 @@ export function promptInjectionMiddleware(
         res.status(400).json({
           error: 'Prompt injection detected',
           category: result.category,
+        });
+        return;
+      }
+
+      // ── Layer 2: ML classifier (smart, language-agnostic) ─────────────
+      const mlResult = await classifyWithML(message.content);
+
+      if (mlResult && mlResult.is_injection && mlResult.confidence >= ML_CONFIDENCE_THRESHOLD) {
+        const category = 'ml_detected';
+        req.detectedThreats.push(category);
+
+        logger.warn(
+          {
+            category,
+            layer: 'ml_classifier',
+            confidence: mlResult.confidence,
+            role: message.role,
+            apiKeyId: req.apiKeyId,
+            correlationId: req.correlationId,
+          },
+          'Prompt injection detected by ML classifier',
+        );
+
+        res.status(400).json({
+          error: 'Prompt injection detected',
+          category,
+          confidence: mlResult.confidence,
         });
         return;
       }

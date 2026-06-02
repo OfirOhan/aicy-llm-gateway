@@ -8,3 +8,11 @@ Thumbs.db
 *.tgz
 .idea/
 .vscode/
+
+# Python / ML classifier
+ml-classifier/venv/
+ml-classifier/data/prepared/
+ml-classifier/model/checkpoints/
+__pycache__/
+*.pyc
+
