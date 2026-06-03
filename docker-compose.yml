@@ -21,6 +21,8 @@ services:
     build: ./ml-classifier
     ports:
       - "8000:8000"
+    volumes:
+      - ./ml-classifier/model:/app/model
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]

@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.env
+.git/
+ml-classifier/.venv/
+ml-classifier/model/

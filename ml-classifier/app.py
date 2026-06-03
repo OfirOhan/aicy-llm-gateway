@@ -41,6 +41,15 @@ async def lifespan(app: FastAPI):
         # Fall back to base model for development
         model_path = "protectai/deberta-v3-base-prompt-injection-v2"
     else:
+        # Verify model files aren't Git LFS pointers (< 1 KB = pointer file)
+        weights_file = MODEL_DIR / "model.safetensors"
+        if weights_file.exists() and weights_file.stat().st_size < 1024:
+            raise RuntimeError(
+                "❌ model.safetensors appears to be a Git LFS pointer file, "
+                "not the actual model weights. Please run:\n"
+                "   git lfs install && git lfs pull\n"
+                "Then restart the service."
+            )
         model_path = str(MODEL_DIR)
 
     tokenizer = AutoTokenizer.from_pretrained(model_path)
