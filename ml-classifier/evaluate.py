@@ -22,7 +22,7 @@ from datasets import load_from_disk
 MODEL_DIR = Path(__file__).parent / "model"
 DATA_DIR = Path(__file__).parent / "data"
 PREPARED_DIR = DATA_DIR / "prepared"
-MAX_LENGTH = 512
+MAX_LENGTH = 256
 
 
 def load_model():

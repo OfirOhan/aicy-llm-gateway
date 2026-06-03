@@ -7,6 +7,7 @@ then splits into train/test sets for fine-tuning.
 
 import json
 from pathlib import Path
+import datasets
 from datasets import load_dataset, Dataset, DatasetDict, concatenate_datasets
 
 
@@ -128,6 +129,11 @@ def prepare() -> DatasetDict:
 
     merged = merged.select(unique_indices)
     print(f"   Total samples after dedup: {len(merged)}")
+
+    # Cast label to ClassLabel (required for stratified split)
+    merged = merged.cast_column(
+        "label", datasets.ClassLabel(names=["BENIGN", "INJECTION"])
+    )
 
     # Print label distribution
     labels = merged["label"]

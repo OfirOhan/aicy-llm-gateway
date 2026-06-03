@@ -42,9 +42,10 @@ curl -X POST http://localhost:3000/v1/chat \
 | `ANTHROPIC_API_KEY` | No | — | Anthropic API key for `claude-3-5-sonnet` model routing |
 | `RATE_LIMIT_WINDOW_MS` | No | `60000` | Sliding-window duration in milliseconds |
 | `RATE_LIMIT_MAX` | No | `30` | Maximum requests allowed per window |
+| `CLASSIFIER_URL` | No | `http://classifier:8000` | ML classifier microservice URL for prompt injection detection |
 | `NODE_ENV` | No | `development` | `development` · `production` · `test` |
 
-> When running via `docker-compose`, `MONGO_URI` and `REDIS_URL` are automatically overridden to point at the containerized services.
+> When running via `docker-compose`, `MONGO_URI`, `REDIS_URL`, and `CLASSIFIER_URL` are automatically overridden to point at the containerized services.
 
 ---
 
@@ -58,14 +59,16 @@ flowchart LR
         direction TB
         A["1. Correlation ID"] --> B["2. Auth (SHA-256 + timing-safe)"]
         B --> C["3. Rate Limiter (Redis sorted set)"]
-        C --> D["4. Prompt Injection Detection"]
-        D --> E["5. PII Redaction (reversible tokens)"]
+        C --> D["4a. Prompt Injection — Regex"]
+        D --> D2["4b. Prompt Injection — ML Classifier"]
+        D2 --> E["5. PII Redaction (reversible tokens)"]
         E --> F["6. LLM Provider Call"]
         F --> G["7. Output Validation"]
         G --> H["8. Audit Logger (MongoDB)"]
     end
 
     GW -->|Anthropic / OpenAI| LLM["LLM Provider"]
+    D2 -.->|HTTP| Classifier["ML Classifier\n(DeBERTa-v3)"]
     GW --> Mongo[("MongoDB")]
     GW --> Redis[("Redis")]
 ```
@@ -82,9 +85,22 @@ API keys are hashed with SHA-256 before storage in MongoDB. Incoming keys are ha
 
 A sliding-window counter backed by Redis sorted sets enforces per-key request quotas. The default limit is 30 requests per 60-second window and is configurable both globally (via `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_MS`) and per key (via the `rateLimit` field on an API key record).
 
-### 3. Prompt Injection Detection
+### 3. Prompt Injection Detection (Dual-Layer)
 
-Inbound messages are scanned against three categories of regex-based patterns: **role-override** attempts (e.g., "ignore previous instructions"), **delimiter/encoding injection** (e.g., base-64 encoded directives, markdown fences used to hide payloads), and **jailbreak patterns** (e.g., "DAN" prompts, "developer mode"). All user and system messages are scanned; detected threats are recorded in the audit log and the request is blocked.
+Prompt injection detection uses a two-layer defense-in-depth architecture:
+
+**Layer 1 — Regex (fast, deterministic):** Inbound messages are scanned against three categories of regex-based patterns: **role-override** attempts (e.g., "ignore previous instructions"), **delimiter/encoding injection** (e.g., base-64 encoded directives, markdown fences used to hide payloads), and **jailbreak patterns** (e.g., "DAN" prompts, "developer mode"). This layer runs in <1ms and catches known English-language patterns.
+
+**Layer 2 — ML Classifier (smart, language-agnostic):** If regex passes, the message is sent to a Python/FastAPI microservice running a fine-tuned [DeBERTa-v3-base](https://huggingface.co/protectai/deberta-v3-base-prompt-injection-v2) model. The model was fine-tuned on ~1,600 samples including multilingual attacks (German, Spanish, Hebrew, Arabic, Japanese, Korean, Russian, French, Italian), creative writing wrappers, Unicode lookalike substitutions, and leetspeak. Only the top 3 of 12 encoder layers were unfrozen during training to preserve the base model's existing injection knowledge while learning new attack patterns.
+
+| Metric | Score |
+|---|---|
+| Precision | 0.972 |
+| Recall | 0.904 |
+| F1 | 0.936 |
+| Accuracy | 0.944 |
+
+The ML layer uses a confidence threshold of 0.85 and has a 2-second timeout — if the classifier is unavailable, the gateway degrades gracefully to regex-only mode. All detections (both layers) are recorded in the audit log.
 
 ### 4. PII Redaction
 
@@ -126,9 +142,10 @@ Tests use [Vitest](https://vitest.dev/) and run without external dependencies (M
 
 ## Known Limitations
 
-- **Regex-based prompt injection detection** — Sophisticated semantic attacks may bypass pattern matching. A production system should layer in ML-based detection (e.g., a classifier fine-tuned on prompt-injection datasets).
+- **ML classifier adds latency** — The DeBERTa-v3 model adds ~200ms per request on CPU. For latency-sensitive deployments, consider model distillation to a smaller architecture or GPU inference.
 - **PII patterns tuned for Israeli formats** — National ID validation uses the Israeli check-digit algorithm; other countries' ID formats are not covered.
 - **Single Redis instance** — Rate limiting relies on one Redis node. For high availability, deploy Redis Sentinel or Redis Cluster.
 - **No request size limits** — Beyond Express built-in defaults, there are no explicit payload-size caps. Consider adding `express.json({ limit: '1mb' })` for production.
 - **No TLS termination** — The gateway serves plain HTTP and is expected to run behind a reverse proxy (nginx, AWS ALB, Cloudflare Tunnel) that handles TLS.
 - **Output validation covers known patterns** — Novel exfiltration techniques or obfuscated secret formats may not be caught by the current regex set.
+- **No streaming support** — The gateway waits for the full LLM response before running output validation. SSE streaming with chunk-level validation would reduce time-to-first-token.

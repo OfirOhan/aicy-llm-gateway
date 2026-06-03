@@ -17,7 +17,7 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 # ── Configuration ────────────────────────────────────────────────────────────
 
 MODEL_DIR = Path(__file__).parent / "model"
-MAX_LENGTH = 512
+MAX_LENGTH = 256
 
 # Global model references (loaded once at startup)
 tokenizer = None
@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
             "Run train.py first, or the service will use the base model."
         )
         # Fall back to base model for development
-        model_path = "meta-llama/Prompt-Guard-2-22M"
+        model_path = "protectai/deberta-v3-base-prompt-injection-v2"
     else:
         model_path = str(MODEL_DIR)
 
